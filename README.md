@@ -88,3 +88,103 @@ SPFILEsid.ora 中的参数是由 Oracle 系统自动管理。如果想要对数�
 ## 5. 用户
 
 用户是在表空间下建立的。用户登录后只能看到和操作自己的表，Oracle 的用户与 MySQL 的数据库类似，每建立一个应用需要创建一个用户
+
+# 数据库内存结构
+
+<img src="./img/2.png" style="zoom:150%;" />
+
+Oracle的内存结构由两部分组成：SGA与PGA
+
+PGA 称为程序全局区，程序全局区不是实例的一部分，当服务器进程启动时，才分配 PGA。
+
+SGA 称为系统全局区，它是数据库实例的一部分，当数据库实例启动时，会首先分配系统全局区。
+
+在系统全局区中包含：数据库高速缓存（Database buffer cache）、重做日志缓存（Redo log buffer cache）、共享池（Shared pool）、大池（Large pool）和 Java 池（Java pool）
+
+## 共享池（Shared pool）
+
+### 共享池的作用
+
+Oracle 引入共享池的目的就是共享 SQL 或 PL/ SQL 代码，即把解析得到的 SQL 代码的结果在这里缓存
+
+### 共享池组成
+
+共享池由两部分组成，即库高速缓存（Libray cache）和数据字典高速缓存（Data dict cache）
+
+库高速缓存库高速缓存存储了最近使用过的 SQL 和 PL/ SQL 语句。
+
+数据字典高速缓存是与数据字典相关的一段缓冲区。在数据字典高速缓冲区中存储了数据文件、表、索引、列、用户、权限信息和其它一些数据库对象的定义。
+
+```sql
+--- 设置共享池的大小
+alter system set shared_pool_size = 16M;
+--- 查看共享池的大小
+show parameter shared_pool_size;
+```
+
+## 数据库高速缓存区（Database buffer cache）
+
+存储了最近从数据文件读入的数据块信息或用户更改后需要写回数据库的数据信息，此时这些没有提交给数据库的更改后的数据称为脏数据。
+
+当用户执行查询语句如`select* from dept`时，如果用户查询的数据块在数据库高速缓存中，Oracle 就不必从磁盘读取，而是直接从数据库高速缓存中读取
+
+```sql
+---  查询数据库块的大小
+show parameter db_block_size;
+--- 查询数据库高速缓存的大小
+--- 因为在Oracle 11g 中，SGA 为数据库服务器自动管理，所以该参数值为0
+show parameter db_cache_size;
+--- 查询数据库高速缓存的大小
+show sga;
+--- 设置数据库高速缓冲区大小
+alter system set db_cache_size = 200M;
+--- 查看数据库高速缓存顾问状态
+show parameter db_cache_advice;
+```
+
+## 重做日志高速缓存区(Redo Log buffer cache)
+
+当用户执行了如 INSERT、UPDATE、DELETE、CREATE、ALTER 或 DROP 操作后，数据发生了变化，这些变化了的数据在写入数据库高速缓存之前会先写入重做日志缓冲区，同时变化之前的数据也放入重做日志高速缓存，这样在数据恢复时 Oracle 就知道哪些需要前滚哪些需要后滚了。
+
+```sql
+--- 查看重做日志缓存区
+show parameter log_buffer;
+```
+
+## 大池（Large pool）
+
+大池是 SGA 的一段可选内存区，只在共享服务器环境中配置大池。
+
+在共享服务器环境下，Oracle 在共享池中分配额外的空间用于存储用户进程和服务器进程之间的会话信息，但是用户进程区域 UGA（可理解为 PGA 在共享服务器中的另一个称呼）的大部分将在大池中分配，这样就减轻了共享池的负担
+
+```sql
+--- 查看大池大小
+show parameter large_pool_size
+--- 修改大池大小
+alter system set large_pool_size = 48M
+```
+
+## Java池（Java pool）
+
+Java 池也是可选的一段内存区，但是在安装完 Java 或者使用 Java 程序时则必须设置 Java 池，它用于编译 Java 语言编写的指令。
+
+```sql
+--- 查看java池的大小
+show parameter java_pool_size;
+--- 修改java池大小
+alter system set java_pool_size = 48M
+```
+
+## PGA 和 UGA
+
+### PGA（进程全局区）
+
+PGA 中存储了服务器进程或单独的后台进程的数据信息和控制信息。它随着服务器进程的创建而被分配内存，随着进程的终止而释放内存。PGA 与 SGA 不同，它不是一个共享区域，而是服务器进程专有的区域。在专有服务器（与共享服务器相对的概念）配置中包括如下的组件：排序区、会话信息、游标状态、堆栈区
+
+### UGA（用户全局区）
+
+在共享服务器模式下有一个重要的概念即 UGA，它是用户的会话状态，这部分内存会话总可以访问，UGA 存储在每个共享服务器都可以访问的 SGA 中，这样任何服务器都可以使用用户会话的数据和其它信息。而在专有服务器模式下，用户会话状态不需要共享，用户进程与服务器进程是一一对应的关系，所以 UGA 总是在 PGA 中进行分配。
+
+### PGA 内存管理
+
+从Oracle 9i 开始，Oracle 提高了两种办法管理 PGA，即手动 PGA 管理和自动 PGA 管理。采用手动管理时，必须告诉Oracle 一个特定的进程需要的排序区，允许使用多少内存，而在自动 PGA 管理中，则要求高速 Oracle 在系统范围内可以为 PGA 中的特定功能如排序区分配多少内存。
